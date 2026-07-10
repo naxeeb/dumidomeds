@@ -221,17 +221,6 @@
     background:var(--green-soft);color:var(--green);box-shadow:none;
     border:1px solid color-mix(in srgb, var(--green) 35%, var(--border));
   }
-  .stamp{
-    text-align:center;font-size:13px;font-weight:600;color:var(--green);
-    margin-top:10px;font-variant-numeric:tabular-nums;
-  }
-  .notes-wrap{margin-top:12px;}
-  .notes-wrap label{display:block;font-size:12px;color:var(--text-mute);font-weight:600;margin-bottom:5px;}
-  textarea.notes{
-    width:100%;min-height:44px;resize:vertical;border:1px solid var(--border);border-radius:var(--radius-sm);
-    background:var(--bg-2);color:var(--text);font-family:inherit;font-size:13px;padding:9px 11px;
-  }
-  textarea.notes:focus-visible{outline:none;box-shadow:var(--ring);border-color:var(--blue);}
 
   /* Reminders */
   .reminders{margin-top:8px;padding:18px;}
@@ -271,7 +260,7 @@
   /* Print */
   @media print{
     body{background:#fff;color:#000;}
-    .tools,.take-btn,.notes-wrap,.chev,.icon-btn,.menu-pop,#confetti{display:none !important;}
+    .tools,.take-btn,.chev,.icon-btn,.menu-pop,#confetti{display:none !important;}
     .card .body{max-height:none !important;}
     .card,.panel,.card-base{box-shadow:none !important;border:1px solid #ccc;}
     .rail::before,.dot{display:none;}
@@ -335,10 +324,10 @@
     <h2>📌 Important reminders</h2>
     <ul>
       <li><span class="tick">✓</span><span>Keep <b>Hemofix</b> and <b>Calbo-D</b> at least 2 hours apart.</span></li>
-      <li><span class="tick">✓</span><span>Drink plenty of water while taking <b>Nitrofurantoin</b>.</span></li>
+      <li><span class="tick">✓</span><span>Drink plenty of water while taking <b>Nintoin</b>.</span></li>
       <li><span class="tick">✓</span><span>Finish the full antibiotic course, even if she feels fine.</span></li>
-      <li><span class="tick">✓</span><span><b>Aspirin</b> is taken after breakfast.</span></li>
-      <li><span class="tick">✓</span><span><b>Omeprazole</b> works best on an empty stomach, before meals.</span></li>
+      <li><span class="tick">✓</span><span><b>Ecosprin</b> is taken after dinner.</span></li>
+      <li><span class="tick">✓</span><span><b>Proceptin</b> works best on an empty stomach, before meals.</span></li>
     </ul>
     <div class="emergency">
       <span>🚑</span>
@@ -374,23 +363,23 @@
 
   /* ---------- schedule ---------- */
   var SCHEDULE = [
-    { id:"t0700", time:"07:00", period:"Early morning",
-      meds:[{name:"Omeprazole 20 mg"}],
+    { id:"t0800", time:"08:00", period:"Early morning",
+      meds:[{name:"Proceptin 20"}],
       info:["Empty stomach","Take with water","Wait 30 to 60 minutes before breakfast"] },
-    { id:"t0800", time:"08:00", period:"After breakfast",
-      meds:[{name:"MomVit"},{name:"Aspirin 75 mg"},{name:"Nitrofurantoin SR 100 mg"}],
+    { id:"t0900", time:"09:00", period:"After breakfast",
+      meds:[{name:"MomVit"},{name:"Nintoin SR"}],
       info:["Take after breakfast","Drink plenty of water"] },
-    { id:"t1300", time:"13:00", period:"After lunch",
+    { id:"t1400", time:"14:00", period:"After lunch",
       meds:[{name:"Calbo-D"}],
       info:["Take with food"] },
-    { id:"t1900", time:"19:00", period:"Evening",
-      meds:[{name:"Omeprazole 20 mg"}],
+    { id:"t2000", time:"20:00", period:"Evening",
+      meds:[{name:"Proceptin 20"}],
       info:["Empty stomach","Take 30 to 60 minutes before dinner"] },
-    { id:"t2000", time:"20:00", period:"After dinner",
-      meds:[{name:"Nitrofurantoin SR 100 mg"},{name:"Ondansetron 4 mg", note:"Only if still needed, during the first 3 days"}],
-      info:["Take after dinner"],
-      caution:"Complete the full Nitrofurantoin course." },
-    { id:"t2200", time:"22:00", period:"Before bed",
+    { id:"t2100", time:"21:00", period:"After dinner",
+      meds:[{name:"Nintoin SR"},{name:"Ecosprin 75"}],
+      info:["Take after dinner","Drink plenty of water"],
+      caution:"Complete the full Nintoin course." },
+    { id:"t2300", time:"23:00", period:"Before bed",
       meds:[{name:"Hemofix FZ"}],
       info:["Take with water","Preferably with vitamin C"],
       caution:"No milk, tea, or coffee with this dose. Keep at least 2 hours away from Calbo-D (calcium)." }
@@ -480,9 +469,6 @@
           infoHtml+
           cautionHtml+
           '<button class="take-btn">✓ Mark as taken</button>'+
-          '<div class="stamp" style="display:none"></div>'+
-          '<div class="notes-wrap"><label>Notes (optional)</label>'+
-            '<textarea class="notes" placeholder="e.g. felt nauseous, vomited after dose"></textarea></div>'+
         '</div></div>'+
       '</div>';
 
@@ -502,13 +488,6 @@
       else { state.taken[slot.id] = { at: new Date().toISOString() }; }
       save(); applyAll(); refreshHeaders();
     });
-
-    // notes
-    var notes = card.querySelector(".notes");
-    notes.value = state.notes[slot.id] || "";
-    notes.addEventListener("input", function(){
-      state.notes[slot.id] = notes.value; save();
-    });
   });
 
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){
@@ -526,17 +505,13 @@
     badge.className = "badge badge-"+st;
 
     var take = card.querySelector(".take-btn");
-    var stamp = card.querySelector(".stamp");
     var entry = state.taken[slot.id];
     if(entry){
       take.textContent = "Undo";
       take.classList.add("taken");
-      stamp.style.display = "";
-      stamp.textContent = "Taken at " + fmt12(new Date(entry.at));
     } else {
       take.textContent = "✓ Mark as taken";
       take.classList.remove("taken");
-      stamp.style.display = "none";
     }
   }
 
@@ -637,12 +612,8 @@
     var now = new Date();
     // daily reset if we crossed midnight while open
     if(state.day !== todayKey()){
-      state = { day:todayKey(), taken:{}, notes:{}, theme:state.theme, celebrated:false };
+      state = { day:todayKey(), taken:{}, theme:state.theme, celebrated:false };
       save();
-      // clear notes fields in DOM
-      SCHEDULE.forEach(function(s){
-        var ta = cardEls[s.id].querySelector(".notes"); if(ta) ta.value = "";
-      });
     }
     dateEl.textContent = now.toLocaleDateString(undefined,{weekday:"long", day:"numeric", month:"long"});
     timeEl.textContent = fmt12(now);
@@ -686,11 +657,8 @@
 
   document.getElementById("resetBtn").addEventListener("click", function(){
     menuPop.classList.remove("open");
-    if(confirm("Reset today's progress? This clears all check marks and notes for today.")){
-      state.taken = {}; state.notes = {}; state.celebrated = false; save();
-      SCHEDULE.forEach(function(s){
-        var ta = cardEls[s.id].querySelector(".notes"); if(ta) ta.value = "";
-      });
+    if(confirm("Reset today's progress? This clears all check marks for today.")){
+      state.taken = {}; state.celebrated = false; save();
       applyAll();
     }
   });
@@ -705,10 +673,8 @@
     lines.push("");
     SCHEDULE.forEach(function(s){
       lines.push(fmt12hhmm(s.time) + "  " + s.period);
-      s.meds.forEach(function(m){ lines.push("  - " + m.name + (m.note? " ("+m.note+")":"")); });
-      var entry = state.taken[s.id];
-      lines.push("  Status: " + (entry ? "Taken at " + fmt12(new Date(entry.at)) : "Not taken"));
-      if(state.notes[s.id]) lines.push("  Notes: " + state.notes[s.id]);
+      s.meds.forEach(function(m){ lines.push("  - " + m.name); });
+      lines.push("  Status: " + (state.taken[s.id] ? "Taken" : "Not taken"));
       lines.push("");
     });
     var blob = new Blob([lines.join("\n")], {type:"text/plain"});
