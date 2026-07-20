@@ -29,6 +29,8 @@
     --amber-soft:#fbf1de;
     --red:#df6459;
     --red-soft:#fbe9e7;
+    --gold:#f7b733;
+    --gold-deep:#dd9a12;
 
     --radius:18px;
     --radius-sm:12px;
@@ -54,6 +56,8 @@
     --amber-soft:#2e2413;
     --red:#ef7f76;
     --red-soft:#301a18;
+    --gold:#f5c04a;
+    --gold-deep:#caa030;
 
     --shadow:0 6px 22px rgba(0,0,0,.4);
     --shadow-lift:0 14px 34px rgba(0,0,0,.55);
@@ -119,17 +123,27 @@
   .hero.state-done .h-title{color:var(--green);}
   .hero.state-over .h-title{color:var(--red);}
 
-  /* Progress */
-  .progress{padding:16px 18px;margin-bottom:22px;}
-  .progress .row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
-  .progress .row .label{font-size:14px;font-weight:600;color:var(--text-soft);}
-  .progress .row .val{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;}
-  .bar{height:12px;border-radius:99px;background:var(--blue-soft);overflow:hidden;}
-  .bar > i{
-    display:block;height:100%;width:0%;border-radius:99px;
-    background:linear-gradient(90deg,var(--blue),var(--green));
-    transition:width .6s var(--ease);
+  /* Stars */
+  .stars-card{padding:16px 18px 18px;margin-bottom:22px;text-align:center;}
+  .stars-label{font-size:13px;font-weight:600;color:var(--text-soft);letter-spacing:.02em;margin-bottom:12px;}
+  .stars{display:flex;justify-content:center;gap:10px;}
+  .star{width:38px;height:38px;display:inline-flex;}
+  .star svg{width:100%;height:100%;overflow:visible;}
+  .star svg path{
+    fill:none;stroke:var(--text-mute);stroke-width:1.5;stroke-linejoin:round;
+    transition:fill .3s var(--ease), stroke .3s var(--ease);
   }
+  .star.on svg path{
+    fill:var(--gold);stroke:var(--gold-deep);
+    filter:drop-shadow(0 3px 7px rgba(224,150,20,.45));
+  }
+  .star.pop{ animation:starpop .42s var(--ease); }
+  @keyframes starpop{
+    0%{transform:scale(.5) rotate(-12deg);}
+    55%{transform:scale(1.28) rotate(6deg);}
+    100%{transform:scale(1) rotate(0);}
+  }
+  .stars-note{margin-top:12px;font-size:13px;color:var(--text-mute);}
 
   /* Timeline + cards */
   .list{position:relative;}
@@ -265,7 +279,7 @@
     .card,.panel,.card-base{box-shadow:none !important;border:1px solid #ccc;}
     .rail::before,.dot{display:none;}
     .card{padding-left:0;}
-    .hero,.progress{border:1px solid #ccc;}
+    .hero,.stars-card{border:1px solid #ccc;}
     a[href]:after{content:"";}
   }
 </style>
@@ -310,12 +324,10 @@
     </div>
   </div>
 
-  <div class="card-base progress">
-    <div class="row">
-      <span class="label">Today's progress</span>
-      <span class="val" id="progVal">0 / 0</span>
-    </div>
-    <div class="bar"><i id="progBar"></i></div>
+  <div class="card-base stars-card">
+    <div class="stars-label">Today's stars</div>
+    <div class="stars" id="stars"></div>
+    <div class="stars-note" id="starsNote"></div>
   </div>
 
   <div class="list" id="list"></div>
@@ -334,8 +346,8 @@
   </div>
 
   <footer>
-    Checkboxes reset automatically at midnight.<br/>
-    Progress is saved on this device.
+    Resets automatically at midnight.<br/>
+    <span id="syncNote">Saved on this device</span>
   </footer>
 </div>
 
@@ -358,6 +370,80 @@
     };
   })();
   var KEY = "med-tracker-v1";
+
+  /* ===== Supabase shared sync. Paste your two values below, then re-upload. ===== */
+  var SUPABASE_URL = "https://tlqqnmnbhouwvihyuvqf.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_jWtDQyRn0xjSQQaJhGnDWg_KfwXCi2O";
+
+  var SB = SUPABASE_URL.replace(/\/+$/,"");
+  var CLOUD = /supabase\.co/.test(SB) && SUPABASE_KEY.indexOf("PASTE") === -1 && SUPABASE_KEY.length > 20;
+
+  function sbHeaders(extra){
+    var h = { "apikey":SUPABASE_KEY, "Authorization":"Bearer "+SUPABASE_KEY, "Content-Type":"application/json" };
+    if(extra){ for(var k in extra){ h[k]=extra[k]; } }
+    return h;
+  }
+  function cloudFetchToday(){
+    return fetch(SB+"/rest/v1/doses?day=eq."+todayKey()+"&select=slot_id", { headers:sbHeaders() })
+      .then(function(r){ if(!r.ok) throw r.status; return r.json(); })
+      .then(function(rows){ return rows.map(function(x){ return x.slot_id; }); });
+  }
+  function cloudWrite(slot, taken, day){
+    if(taken){
+      return fetch(SB+"/rest/v1/doses?on_conflict=day,slot_id", {
+        method:"POST", headers:sbHeaders({ "Prefer":"resolution=merge-duplicates,return=minimal" }),
+        body:JSON.stringify({ day:day, slot_id:slot })
+      });
+    }
+    return fetch(SB+"/rest/v1/doses?day=eq."+day+"&slot_id=eq."+slot, {
+      method:"DELETE", headers:sbHeaders({ "Prefer":"return=minimal" })
+    });
+  }
+  function cloudCleanup(){
+    fetch(SB+"/rest/v1/doses?day=lt."+todayKey(), { method:"DELETE", headers:sbHeaders({ "Prefer":"return=minimal" }) }).catch(function(){});
+  }
+
+  /* offline-safe write queue: ticks survive a dropped connection */
+  var flushing=false;
+  function enqueue(slot, taken){
+    state.queue = (state.queue||[]).filter(function(e){ return e.slot!==slot; });
+    state.queue.push({ slot:slot, taken:taken, day:todayKey() });
+    save();
+  }
+  function pendingSet(){
+    var s={}; (state.queue||[]).forEach(function(e){ if(e.day===todayKey()) s[e.slot]=true; }); return s;
+  }
+  function flushQueue(){
+    if(!CLOUD || flushing || !navigator.onLine) return;
+    if(!state.queue || !state.queue.length) return;
+    flushing=true;
+    var e=state.queue[0];
+    cloudWrite(e.slot, e.taken, e.day).then(function(r){
+      flushing=false;
+      if(r && r.ok){ state.queue.shift(); save(); flushQueue(); }
+    }).catch(function(){ flushing=false; });
+  }
+  function reconcile(){
+    if(!CLOUD || !navigator.onLine) return;
+    cloudFetchToday().then(function(serverSlots){
+      var pend=pendingSet(), srv={}, changed=false;
+      serverSlots.forEach(function(s){ srv[s]=true; });
+      SCHEDULE.forEach(function(sl){
+        if(pend[sl.id]) return;               // unsynced local change wins until confirmed
+        var has=!!state.taken[sl.id];
+        if(srv[sl.id] && !has){ state.taken[sl.id]={ at:new Date().toISOString() }; changed=true; }
+        else if(!srv[sl.id] && has){ delete state.taken[sl.id]; changed=true; }
+      });
+      setSync("ok");
+      if(changed){ save(); applyAll(); }
+    }).catch(function(){ setSync("off"); });
+  }
+  function setSync(kind){
+    var el=document.getElementById("syncNote"); if(!el) return;
+    if(!CLOUD){ el.textContent="Saved on this device"; return; }
+    if(kind==="off" || !navigator.onLine){ el.textContent="Offline, will sync when back"; return; }
+    el.textContent="Live sync on, shared between phones";
+  }
 
   /* ---------- schedule ---------- */
   var SCHEDULE = [
@@ -393,10 +479,10 @@
     var raw = store.get(KEY), s = null;
     try{ s = raw ? JSON.parse(raw) : null; }catch(e){ s = null; }
     if(!s || s.day !== todayKey()){
-      s = { day:todayKey(), taken:{}, notes:{}, theme:(s && s.theme) || "light", celebrated:false };
+      s = { day:todayKey(), taken:{}, theme:(s && s.theme) || "light", celebrated:false, queue:[] };
     }
     if(!s.taken) s.taken = {};
-    if(!s.notes) s.notes = {};
+    if(!s.queue) s.queue = [];
     return s;
   }
   function save(){ store.set(KEY, JSON.stringify(state)); }
@@ -478,9 +564,12 @@
 
     // mark taken / undo
     card.querySelector(".take-btn").addEventListener("click", function(){
-      if(state.taken[slot.id]){ delete state.taken[slot.id]; }
-      else { state.taken[slot.id] = { at: new Date().toISOString() }; }
-      save(); applyAll(); refreshHeaders();
+      var taken = !state.taken[slot.id];
+      if(taken){ state.taken[slot.id] = { at: new Date().toISOString() }; }
+      else { delete state.taken[slot.id]; }
+      save();
+      if(CLOUD){ enqueue(slot.id, taken); flushQueue(); }
+      applyAll();
     });
   });
 
@@ -575,11 +664,25 @@
     return m+"m";
   }
 
-  function renderProgress(){
-    var done = SCHEDULE.filter(function(s){ return state.taken[s.id]; }).length;
-    document.getElementById("progVal").textContent = done + " / " + TOTAL;
-    document.getElementById("progBar").style.width = Math.round(done/TOTAL*100) + "%";
-    return done;
+  function doneCount(){ return SCHEDULE.filter(function(s){ return state.taken[s.id]; }).length; }
+
+  var STAR_SVG = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>';
+  var starsWrap = null;
+  function renderStars(done){
+    if(!starsWrap) starsWrap = document.getElementById("stars");
+    if(starsWrap.children.length !== TOTAL){
+      starsWrap.innerHTML = "";
+      for(var b=0;b<TOTAL;b++){ var sp=document.createElement("span"); sp.className="star"; sp.innerHTML=STAR_SVG; starsWrap.appendChild(sp); }
+    }
+    for(var i=0;i<TOTAL;i++){
+      var st=starsWrap.children[i], on=i<done;
+      if(on && !st.classList.contains("on")){
+        st.classList.add("on","pop");
+        (function(el){ setTimeout(function(){ el.classList.remove("pop"); }, 420); })(st);
+      } else if(!on){ st.classList.remove("on"); }
+    }
+    var note=document.getElementById("starsNote");
+    if(note) note.textContent = done===TOTAL ? "Perfect day, all five earned" : (done+" of "+TOTAL+" earned");
   }
 
   /* ---------- full apply ---------- */
@@ -587,8 +690,8 @@
     var now = new Date();
     SCHEDULE.forEach(function(s){ applyCard(s, now); });
     renderHero(now);
-    var done = renderProgress();
-    // celebration
+    var done = doneCount();
+    renderStars(done);
     if(done === TOTAL && !state.celebrated){
       state.celebrated = true; save(); celebrate();
     }
@@ -606,8 +709,9 @@
     var now = new Date();
     // daily reset if we crossed midnight while open
     if(state.day !== todayKey()){
-      state = { day:todayKey(), taken:{}, theme:state.theme, celebrated:false };
+      state = { day:todayKey(), taken:{}, theme:state.theme, celebrated:false, queue:[] };
       save();
+      if(CLOUD){ reconcile(); }
     }
     dateEl.textContent = now.toLocaleDateString(undefined,{weekday:"long", day:"numeric", month:"long"});
     timeEl.textContent = fmt12(now);
@@ -724,6 +828,15 @@
   })();
   tick();
   setInterval(tick, 1000);
+
+  // shared sync
+  setSync();
+  if(CLOUD){
+    flushQueue(); reconcile(); cloudCleanup();
+    setInterval(function(){ flushQueue(); reconcile(); }, 25000);
+    window.addEventListener("online",  function(){ setSync(); flushQueue(); reconcile(); });
+    window.addEventListener("offline", function(){ setSync("off"); });
+  }
 })();
 </script>
 </body>
